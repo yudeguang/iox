@@ -1,5 +1,5 @@
 //主要用于在文件(os.File)中查找相关字节数组 Index(b []byte) 以及读取数据 ReadByte(n int)等操作，同时也支持所有io.ReadSeeker类型数据
-package files
+package iox
 
 import (
 	"bytes"
