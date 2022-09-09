@@ -264,7 +264,7 @@ func (r *ReadSeeker) ReadHexToString(n int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.ToUpper(hex.EncodeToString((bt))), nil
+	return strings.ToUpper(hex.EncodeToString(bt)), nil
 }
 
 //读取n个字节,转化为string,并移动指针
@@ -295,7 +295,17 @@ func (r *ReadSeeker) ReadStringTrimSpace(n int) (string, error) {
 
 }
 
-//读取一个uint8数,并移动指针
+//读取一个int8数,并移动指针 Uint8无大端小端差异
+func (r *ReadSeeker) ReadInt8() (int8, error) {
+	bt := make([]byte, 1)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	return int8(bt[0]), nil
+}
+
+//读取一个uint8,并移动指针 Uint8无大端小端差异
 func (r *ReadSeeker) ReadUint8() (uint8, error) {
 	bt := make([]byte, 1)
 	_, err := r.readSeeker.Read(bt)
@@ -303,6 +313,28 @@ func (r *ReadSeeker) ReadUint8() (uint8, error) {
 		return 0, err
 	}
 	return bt[0], nil
+}
+
+//读取一个int16,并移动指针
+func (r *ReadSeeker) ReadInt16() (int16, error) {
+	bt := make([]byte, 2)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	n := int16(binary.LittleEndian.Uint16(bt))
+	return n, nil
+}
+
+//读取一个int16数,并移动指针
+func (r *ReadSeeker) ReadInt16BigEndian() (int16, error) {
+	bt := make([]byte, 2)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	n := int16(binary.BigEndian.Uint16(bt))
+	return n, nil
 }
 
 //读取一个uint16数,并移动指针
@@ -327,6 +359,28 @@ func (r *ReadSeeker) ReadUint16BigEndian() (uint16, error) {
 	return n, nil
 }
 
+//读取一个int32数,并移动指针
+func (r *ReadSeeker) ReadInt32() (int32, error) {
+	bt := make([]byte, 4)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	n := int32(binary.LittleEndian.Uint32(bt))
+	return n, nil
+}
+
+//读取一个int32数,并移动指针
+func (r *ReadSeeker) ReadInt32BigEndian() (int32, error) {
+	bt := make([]byte, 4)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	n := int32(binary.BigEndian.Uint32(bt))
+	return n, nil
+}
+
 //读取一个uint32数,并移动指针
 func (r *ReadSeeker) ReadUint32() (uint32, error) {
 	bt := make([]byte, 4)
@@ -346,6 +400,28 @@ func (r *ReadSeeker) ReadUint32BigEndian() (uint32, error) {
 		return 0, err
 	}
 	n := binary.BigEndian.Uint32(bt)
+	return n, nil
+}
+
+//读取一个int64数,并移动指针
+func (r *ReadSeeker) ReadInt64() (int64, error) {
+	bt := make([]byte, 8)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	n := int64(binary.LittleEndian.Uint64(bt))
+	return n, nil
+}
+
+//读取一个int64数,并移动指针
+func (r *ReadSeeker) ReadInt64BigEndian() (int64, error) {
+	bt := make([]byte, 8)
+	_, err := r.readSeeker.Read(bt)
+	if err != nil {
+		return 0, err
+	}
+	n := int64(binary.BigEndian.Uint64(bt))
 	return n, nil
 }
 
