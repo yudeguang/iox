@@ -110,7 +110,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt8 Readint8
 	bb.Reset()
 	bb.WriteInt8(-100)
-	rd := NewFromBytes(bb.Bytes())
+	rd := NewReadSeekerFromBytes(bb.Bytes())
 	yint8, _ := rd.ReadInt8()
 	if yint8 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint8, -100)
@@ -118,7 +118,7 @@ func TestWriter(t *testing.T) {
 	//WriteUint8 ReadUint8
 	bb.Reset()
 	bb.WriteUint8(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint8, _ := rd.ReadUint8()
 	if yuint8 != 100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint8, 100)
@@ -127,7 +127,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt16 ReadInt16
 	bb.Reset()
 	bb.WriteInt16(-100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yint16, _ := rd.ReadInt16()
 	if yint16 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint16, -100)
@@ -136,7 +136,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt16BigEndian ReadInt16BigEndian
 	bb.Reset()
 	bb.WriteInt16BigEndian(-100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yint16, _ = rd.ReadInt16BigEndian()
 	if yint16 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint16, -100)
@@ -145,7 +145,7 @@ func TestWriter(t *testing.T) {
 	//WriteUint16 ReadUint16
 	bb.Reset()
 	bb.WriteUint16(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint16, _ := rd.ReadUint16()
 	if yuint16 != 100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint16, 100)
@@ -154,7 +154,7 @@ func TestWriter(t *testing.T) {
 	//WriteUint16BigEndian ReadUint16
 	bb.Reset()
 	bb.WriteUint16BigEndian(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint16, _ = rd.ReadUint16BigEndian()
 	if yuint16 != 100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint16, 100)
@@ -163,7 +163,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt32 ReadInt32
 	bb.Reset()
 	bb.WriteInt32(-100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yint32, _ := rd.ReadInt32()
 	if yint32 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint32, -100)
@@ -172,7 +172,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt32BigEndian ReadInt32BigEndian
 	bb.Reset()
 	bb.WriteInt32BigEndian(-100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yint32, _ = rd.ReadInt32BigEndian()
 	if yint32 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint32, -100)
@@ -181,7 +181,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt32 ReadInt32
 	bb.Reset()
 	bb.WriteUint32(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint32, _ := rd.ReadUint32()
 	if yint32 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint32, 100)
@@ -190,7 +190,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt32 ReadInt32
 	bb.Reset()
 	bb.WriteUint32BigEndian(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint32, _ = rd.ReadUint32BigEndian()
 	if yint32 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint32, 100)
@@ -199,7 +199,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt64 ReadInt64
 	bb.Reset()
 	bb.WriteInt64(-100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yint64, _ := rd.ReadInt64()
 	if yint64 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint64, -100)
@@ -208,7 +208,7 @@ func TestWriter(t *testing.T) {
 	//WriteInt64 ReadInt64
 	bb.Reset()
 	bb.WriteInt64BigEndian(-100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yint64, _ = rd.ReadInt64BigEndian()
 	if yint64 != -100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yint64, -100)
@@ -217,7 +217,7 @@ func TestWriter(t *testing.T) {
 	//WriteUint64 ReadUint64
 	bb.Reset()
 	bb.WriteUint64(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint64, _ := rd.ReadUint64()
 	if yuint64 != 100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint64, 100)
@@ -226,13 +226,30 @@ func TestWriter(t *testing.T) {
 	//WriteUint64 ReadUint64
 	bb.Reset()
 	bb.WriteUint64BigEndian(100)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	yuint64, _ = rd.ReadUint64BigEndian()
 	if yuint64 != 100 {
 		t.Fatalf("unexpected value obtained; got %v want %v", yuint64, 100)
 	}
 
-	//构造文本
+	//float32
+	bb.Reset()
+	bb.WriteFloat32(float32(100.10))
+	rd = NewReadSeekerFromBytes(bb.Bytes())
+	yfloat32, _ := rd.ReadFloat32()
+	if yuint64 != 100 {
+		t.Fatalf("unexpected value obtained; got %v want %v", yfloat32, float32(100.10))
+	}
+
+	//float64
+	bb.Reset()
+	bb.WriteFloat32(float32(100.1010))
+	rd = NewReadSeekerFromBytes(bb.Bytes())
+	yfloat64, _ := rd.ReadFloat64()
+	if yuint64 != 100 {
+		t.Fatalf("unexpected value obtained; got %v want %v", yfloat64, float64(100.1010))
+	}
+
 	var s string
 	for i := 0; i < 100; i++ {
 		s = s + "s"
@@ -240,7 +257,7 @@ func TestWriter(t *testing.T) {
 	//WriteStringUint8 ReadStringUint8
 	bb.Reset()
 	bb.WriteStringUint8(s)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	ss, _ := rd.ReadStringUint8()
 	if ss != s {
 		t.Fatalf("unexpected value obtained; got %v want %v", ss, s)
@@ -248,7 +265,7 @@ func TestWriter(t *testing.T) {
 	//WriteStringUint16 ReadStringUint16
 	bb.Reset()
 	bb.WriteStringUint16(s)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	ss, _ = rd.ReadStringUint16()
 	if ss != s {
 		t.Fatalf("unexpected value obtained; got %v want %v", ss, s)
@@ -256,7 +273,7 @@ func TestWriter(t *testing.T) {
 	//WriteStringUint32 ReadStringUint32
 	bb.Reset()
 	bb.WriteStringUint32(s)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	ss, _ = rd.ReadStringUint32()
 	if ss != s {
 		t.Fatalf("unexpected value obtained; got %v want %v", ss, s)
@@ -265,7 +282,7 @@ func TestWriter(t *testing.T) {
 	//WriteStringUint64 ReadStringUint64
 	bb.Reset()
 	bb.WriteStringUint64(s)
-	rd = NewFromBytes(bb.Bytes())
+	rd = NewReadSeekerFromBytes(bb.Bytes())
 	ss, _ = rd.ReadStringUint64()
 	if ss != s {
 		t.Fatalf("unexpected value obtained; got %v want %v", ss, s)

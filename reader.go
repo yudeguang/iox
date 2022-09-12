@@ -1,4 +1,3 @@
-//主要用于在文件(os.File)中查找相关字节数组 Index(b []byte) 以及读取数据 ReadByte(n int)等操作，同时也支持所有io.ReadSeeker类型数据
 package iox
 
 import (
@@ -7,71 +6,103 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-//ReadSeeker及为io.ReadSeeker
+// ReadSeeker helps you read and seek data from io.ReadSeeker,the default ByteOrder is LittleEndian.
 type ReadSeeker struct {
 	readSeeker io.ReadSeeker
 }
 
-//从io.ReadSeeker初始化
-func New(ioReadSeeker io.ReadSeeker) *ReadSeeker {
+//returns a *ReadSeeker from io.ReadSeeker.
+func NewReadSeeker(rs io.ReadSeeker) *ReadSeeker {
 	r := new(ReadSeeker)
-	r.readSeeker = ioReadSeeker
+	r.readSeeker = rs
 	return r
 }
 
-//从文件初始化,注意最后要调用Close关闭文件
-func NewFromFile(fileName string) (*ReadSeeker, error) {
+//returns a *ReadSeeker from file.
+func NewReadSeekerFromFile(fileName string) (*ReadSeeker, error) {
 	file, err := os.OpenFile(fileName, os.O_RDONLY, 0x666)
 	if err != nil {
 		return nil, err
 	} else {
-		return New(file), nil
+		return NewReadSeeker(file), nil
 	}
 }
 
-//从切片初始化
-func NewFromBytes(b []byte) *ReadSeeker {
-	return New(bytes.NewReader(b))
+//returns a *ReadSeeker from bytes.
+func NewReadSeekerFromBytes(b []byte) *ReadSeeker {
+	return NewReadSeeker(bytes.NewReader(b))
 }
 
-//关闭f
+//Close if it's a io.Closer.
 func (r *ReadSeeker) Close() {
 	if closer, ok := r.readSeeker.(io.Closer); ok {
 		closer.Close()
 	}
 }
 
-//从当前位置移动多少个字节
+//Seeking to an offset before the SeekCurrent of the file.
 func (r *ReadSeeker) Move(n int64) error {
-	_, err := r.readSeeker.Seek(n, io.SeekCurrent)
+	curPos, err := r.readSeeker.Seek(0, io.SeekCurrent) //err always nil
+	if err != nil {
+		panic(err)
+	}
+	length, err := r.readSeeker.Seek(0, io.SeekEnd) //err always nil
+	if err != nil {
+		panic(err)
+	}
+	finalPos := curPos + n
+	if !(finalPos >= 0 && finalPos < length) {
+		_, err = r.readSeeker.Seek(curPos, io.SeekStart)
+		if err != nil { //err always nil
+			panic(err)
+		}
+		return fmt.Errorf("the legal pos range is between 0 and %v ,and current pos is %v", length-1, finalPos)
+	}
+	_, err = r.readSeeker.Seek(finalPos, io.SeekStart)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-//移动到某个位置
+//Seeking to an offset before the start of the file.
 func (r *ReadSeeker) MoveTo(pos int64) error {
-	_, err := r.readSeeker.Seek(pos, io.SeekStart)
+	curPos, err := r.readSeeker.Seek(0, io.SeekCurrent) //err always nil
+	if err != nil {
+		panic(err)
+	}
+	length, err := r.readSeeker.Seek(0, io.SeekEnd) //err always nil
+	if err != nil {
+		panic(err)
+	}
+	if !(pos >= 0 && pos <= length) {
+		_, err = r.readSeeker.Seek(curPos, io.SeekStart)
+		if err != nil { //err always nil
+			panic(err)
+		}
+		return fmt.Errorf("the legal pos range is between 0 and %v ,and current pos is %v", length-1, pos)
+	}
+	_, err = r.readSeeker.Seek(pos, io.SeekStart)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-//获得当前位置
+//get current pos of offset.
 func (r *ReadSeeker) CurPos() (int64, error) {
 	return r.readSeeker.Seek(0, io.SeekCurrent)
 }
 
-//获得长度
+//get the size of the data.
 func (r *ReadSeeker) Size() int64 {
-	//防止文件位置发生移动
 	initialPos, err := r.CurPos()
 	if err != nil {
 		panic(err)
@@ -84,38 +115,29 @@ func (r *ReadSeeker) Size() int64 {
 	return n
 }
 
-//获得长度Size()函数的别名
-func (r *ReadSeeker) Len() int64 {
-	return r.Size()
-}
-
-//获取剩余未读取的长度
+//get the length of unread data.
 func (r *ReadSeeker) LenUnRead() int64 {
 	curPos, err := r.CurPos()
 	if err != nil {
-		panic(err)
+		panic(err) //always nil
 	}
 	return r.Size() - curPos
 }
 
-//读取n个字节,并移动指针
-func (r *ReadSeeker) ReadByte(n int) ([]byte, error) {
+//read n bytes.
+func (r *ReadSeeker) ReadBytes(n int) ([]byte, error) {
 	currentPos, err := r.CurPos()
 	if err != nil {
-		return nil, err
+		panic(err) //always nil
 	}
-	//强制检查传入参数的合法性
+	//check the surplus length of the data
 	if surplusLen := r.Size() - currentPos; surplusLen < int64(n) {
-		if surplusLen < 0 {
-			surplusLen = 0
-		}
-		if surplusLen == 0 {
+		if surplusLen <= 0 {
 			return nil, io.EOF
 		} else {
-			return nil, fmt.Errorf(fmt.Sprint(n, ` is too long for this readSeeker,it's only `, surplusLen, ` byte left,and the current position is:`, currentPos, `.`))
+			return nil, fmt.Errorf("%v is too long for this readSeeker,it's only %v bytes left,and the current position is:%v.", n, surplusLen, currentPos)
 		}
 	}
-
 	bt := make([]byte, n)
 	realRead, err := r.readSeeker.Read(bt)
 	if err != nil {
@@ -127,75 +149,99 @@ func (r *ReadSeeker) ReadByte(n int) ([]byte, error) {
 	return bt, nil
 }
 
-//从当前位置起，读取剩余的
-func (r *ReadSeeker) ReadByteUnRead() ([]byte, error) {
-	return r.ReadByte(int(r.LenUnRead()))
+//read n bytes,just used in indexGen.
+func (r *ReadSeeker) readBytesToDst(n int, dst []byte) ([]byte, error) {
+	currentPos, err := r.CurPos()
+	if err != nil {
+		panic(err) //always nil
+	}
+	//check the surplus length of the data
+	if surplusLen := r.Size() - currentPos; surplusLen < int64(n) {
+		if surplusLen <= 0 {
+			return nil, io.EOF
+		} else {
+			return nil, fmt.Errorf("%v is too long for this readSeeker,it's only %v bytes left,and the current position is:%v.", n, surplusLen, currentPos)
+		}
+	}
+	realRead, err := r.readSeeker.Read(dst)
+	if err != nil {
+		return nil, err
+	}
+	if realRead != n {
+		return nil, fmt.Errorf("wish read not match real read")
+	}
+	return dst, nil
 }
 
-//读取若干字节,并移动指针,其中第1个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint8() ([]byte, error) {
+//get all  unread data.
+func (r *ReadSeeker) ReadBytesUnRead() ([]byte, error) {
+	return r.ReadBytes(int(r.LenUnRead()))
+}
+
+//read uint8 as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint8() ([]byte, error) {
 	n, err := r.ReadUint8()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,并移动指针,其中前2个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint16() ([]byte, error) {
+//read uint16 as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint16() ([]byte, error) {
 	n, err := r.ReadUint16()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,并移动指针,其中前2个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint16BigEndian() ([]byte, error) {
+//read uint16(BigEndian) as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint16BigEndian() ([]byte, error) {
 	n, err := r.ReadUint16BigEndian()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,并移动指针,其中前4个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint32() ([]byte, error) {
+//read uint32 as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint32() ([]byte, error) {
 	n, err := r.ReadUint32()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,并移动指针,其中前4个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint32BigEndian() ([]byte, error) {
+//read uint32(BigEndian) as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint32BigEndian() ([]byte, error) {
 	n, err := r.ReadUint32BigEndian()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,并移动指针,其中前8个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint64() ([]byte, error) {
+//read uint64 as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint64() ([]byte, error) {
 	n, err := r.ReadUint64()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,并移动指针,其中前8个字节表示后续待读取切片长度
-func (r *ReadSeeker) ReadByteUint64BigEndian() ([]byte, error) {
+//read uint64(BigEndian) as the data length and then read the data.
+func (r *ReadSeeker) ReadBytesUint64BigEndian() ([]byte, error) {
 	n, err := r.ReadUint64BigEndian()
 	if err != nil {
 		return nil, err
 	}
-	return r.ReadByte(int(n))
+	return r.ReadBytes(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中第1个字节表示后续待读取切片长度
+//read uint8 as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint8() (string, error) {
 	n, err := r.ReadUint8()
 	if err != nil {
@@ -204,7 +250,7 @@ func (r *ReadSeeker) ReadStringUint8() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中前2个字节表示后续待读取切片长度
+//read uint16 as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint16() (string, error) {
 	n, err := r.ReadUint16()
 	if err != nil {
@@ -213,7 +259,7 @@ func (r *ReadSeeker) ReadStringUint16() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中前2个字节表示后续待读取切片长度
+//read uint16(BigEndian) as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint16BigEndian() (string, error) {
 	n, err := r.ReadUint16BigEndian()
 	if err != nil {
@@ -222,7 +268,7 @@ func (r *ReadSeeker) ReadStringUint16BigEndian() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中前4个字节表示后续待读取切片长度
+//read uint32 as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint32() (string, error) {
 	n, err := r.ReadUint32()
 	if err != nil {
@@ -231,7 +277,7 @@ func (r *ReadSeeker) ReadStringUint32() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中前4个字节表示后续待读取切片长度
+//read uint32(BigEndian) as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint32BigEndian() (string, error) {
 	n, err := r.ReadUint32BigEndian()
 	if err != nil {
@@ -240,7 +286,7 @@ func (r *ReadSeeker) ReadStringUint32BigEndian() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中前8个字节表示后续待读取切片长度
+//read uint64 as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint64() (string, error) {
 	n, err := r.ReadUint64()
 	if err != nil {
@@ -249,7 +295,7 @@ func (r *ReadSeeker) ReadStringUint64() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取若干字节,转化为文本,并移动指针,其中前8个字节表示后续待读取切片长度
+//read uint64(BigEndian) as the data length and then read the data.
 func (r *ReadSeeker) ReadStringUint64BigEndian() (string, error) {
 	n, err := r.ReadUint64BigEndian()
 	if err != nil {
@@ -258,36 +304,36 @@ func (r *ReadSeeker) ReadStringUint64BigEndian() (string, error) {
 	return r.ReadString(int(n))
 }
 
-//读取n个字节的16进制数据,转化为string,并移动指针
+//read n bytes of the data and then returns the hexadecimal encoding of the bytes.
 func (r *ReadSeeker) ReadHexToString(n int) (string, error) {
-	bt, err := r.ReadByte(n)
+	bt, err := r.ReadBytes(n)
 	if err != nil {
 		return "", err
 	}
 	return strings.ToUpper(hex.EncodeToString(bt)), nil
 }
 
-//读取n个字节,转化为string,并移动指针
+//read n bytes of the data and convert to string.
 func (r *ReadSeeker) ReadString(n int) (string, error) {
-	bt, err := r.ReadByte(n)
+	bt, err := r.ReadBytes(n)
 	if err != nil {
 		return "", err
 	}
 	return string(bt), nil
 }
 
-//从当前位置开始，读取剩余部分数据
+//read all unread data and convert to string.
 func (r *ReadSeeker) ReadStringUnRead() (string, error) {
-	bt, err := r.ReadByteUnRead()
+	bt, err := r.ReadBytesUnRead()
 	if err != nil {
 		return "", err
 	}
 	return string(bt), nil
 }
 
-//读取n个字节,转化为去前后空格的string,并移动指针
+//read n bytes of data, then convert to string, and then remove spaces in the string.
 func (r *ReadSeeker) ReadStringTrimSpace(n int) (string, error) {
-	bt, err := r.ReadByte(n)
+	bt, err := r.ReadBytes(n)
 	if err != nil {
 		return "", err
 	}
@@ -295,7 +341,7 @@ func (r *ReadSeeker) ReadStringTrimSpace(n int) (string, error) {
 
 }
 
-//读取一个int8数,并移动指针 Uint8无大端小端差异
+//read 1 byte and then convert to int8.
 func (r *ReadSeeker) ReadInt8() (int8, error) {
 	bt := make([]byte, 1)
 	_, err := r.readSeeker.Read(bt)
@@ -305,7 +351,7 @@ func (r *ReadSeeker) ReadInt8() (int8, error) {
 	return int8(bt[0]), nil
 }
 
-//读取一个uint8,并移动指针 Uint8无大端小端差异
+//read 1 byte and then convert to uint8.
 func (r *ReadSeeker) ReadUint8() (uint8, error) {
 	bt := make([]byte, 1)
 	_, err := r.readSeeker.Read(bt)
@@ -315,7 +361,7 @@ func (r *ReadSeeker) ReadUint8() (uint8, error) {
 	return bt[0], nil
 }
 
-//读取一个int16,并移动指针
+//read 2 bytes and then convert to int16.
 func (r *ReadSeeker) ReadInt16() (int16, error) {
 	bt := make([]byte, 2)
 	_, err := r.readSeeker.Read(bt)
@@ -326,7 +372,7 @@ func (r *ReadSeeker) ReadInt16() (int16, error) {
 	return n, nil
 }
 
-//读取一个int16数,并移动指针
+//read 2 bytes and then convert to int16(BigEndian).
 func (r *ReadSeeker) ReadInt16BigEndian() (int16, error) {
 	bt := make([]byte, 2)
 	_, err := r.readSeeker.Read(bt)
@@ -337,7 +383,7 @@ func (r *ReadSeeker) ReadInt16BigEndian() (int16, error) {
 	return n, nil
 }
 
-//读取一个uint16数,并移动指针
+//read 2 bytes and then convert to uint16.
 func (r *ReadSeeker) ReadUint16() (uint16, error) {
 	bt := make([]byte, 2)
 	_, err := r.readSeeker.Read(bt)
@@ -348,7 +394,7 @@ func (r *ReadSeeker) ReadUint16() (uint16, error) {
 	return n, nil
 }
 
-//读取一个uint16数,并移动指针
+//read 2 bytes and then convert to uint16(BigEndian).
 func (r *ReadSeeker) ReadUint16BigEndian() (uint16, error) {
 	bt := make([]byte, 2)
 	_, err := r.readSeeker.Read(bt)
@@ -359,7 +405,7 @@ func (r *ReadSeeker) ReadUint16BigEndian() (uint16, error) {
 	return n, nil
 }
 
-//读取一个int32数,并移动指针
+//read 4 bytes and then convert to int32.
 func (r *ReadSeeker) ReadInt32() (int32, error) {
 	bt := make([]byte, 4)
 	_, err := r.readSeeker.Read(bt)
@@ -370,7 +416,7 @@ func (r *ReadSeeker) ReadInt32() (int32, error) {
 	return n, nil
 }
 
-//读取一个int32数,并移动指针
+//read 4 bytes and then convert to int32(BigEndian).
 func (r *ReadSeeker) ReadInt32BigEndian() (int32, error) {
 	bt := make([]byte, 4)
 	_, err := r.readSeeker.Read(bt)
@@ -381,7 +427,7 @@ func (r *ReadSeeker) ReadInt32BigEndian() (int32, error) {
 	return n, nil
 }
 
-//读取一个uint32数,并移动指针
+//read 4 bytes and then convert to uint32.
 func (r *ReadSeeker) ReadUint32() (uint32, error) {
 	bt := make([]byte, 4)
 	_, err := r.readSeeker.Read(bt)
@@ -392,7 +438,7 @@ func (r *ReadSeeker) ReadUint32() (uint32, error) {
 	return n, nil
 }
 
-//读取一个uint32数,并移动指针
+//read 4 bytes and then convert to uint32(BigEndian).
 func (r *ReadSeeker) ReadUint32BigEndian() (uint32, error) {
 	bt := make([]byte, 4)
 	_, err := r.readSeeker.Read(bt)
@@ -403,7 +449,7 @@ func (r *ReadSeeker) ReadUint32BigEndian() (uint32, error) {
 	return n, nil
 }
 
-//读取一个int64数,并移动指针
+//read 8 bytes and then convert to int64.
 func (r *ReadSeeker) ReadInt64() (int64, error) {
 	bt := make([]byte, 8)
 	_, err := r.readSeeker.Read(bt)
@@ -414,7 +460,7 @@ func (r *ReadSeeker) ReadInt64() (int64, error) {
 	return n, nil
 }
 
-//读取一个int64数,并移动指针
+//read 8 bytes and then convert to int64(BigEndian).
 func (r *ReadSeeker) ReadInt64BigEndian() (int64, error) {
 	bt := make([]byte, 8)
 	_, err := r.readSeeker.Read(bt)
@@ -425,7 +471,7 @@ func (r *ReadSeeker) ReadInt64BigEndian() (int64, error) {
 	return n, nil
 }
 
-//读取一个uint64数,并移动指针
+//read 8 bytes and then convert to uint64.
 func (r *ReadSeeker) ReadUint64() (uint64, error) {
 	bt := make([]byte, 8)
 	_, err := r.readSeeker.Read(bt)
@@ -436,7 +482,7 @@ func (r *ReadSeeker) ReadUint64() (uint64, error) {
 	return n, nil
 }
 
-//读取一个uint64数,并移动指针
+//read 8 bytes and then convert to uint64(BigEndian).
 func (r *ReadSeeker) ReadUint64BigEndian() (uint64, error) {
 	bt := make([]byte, 8)
 	_, err := r.readSeeker.Read(bt)
@@ -447,22 +493,57 @@ func (r *ReadSeeker) ReadUint64BigEndian() (uint64, error) {
 	return n, nil
 }
 
-//判断f是否包含子串sep
+//read 4 bytes and convert it to float32.
+func (r *ReadSeeker) ReadFloat32() (float32, error) {
+	Uint32, err := r.ReadUint32()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float32frombits(Uint32), nil
+}
+
+//read 4 bytes and convert it to float32(BigEndian).
+func (r *ReadSeeker) ReadFloat32BigEndian() (float32, error) {
+	Uint32, err := r.ReadUint32BigEndian()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float32frombits(Uint32), nil
+}
+
+//read 8 bytes and convert it to float64.
+func (r *ReadSeeker) ReadFloat64() (float64, error) {
+	Uint64, err := r.ReadUint64()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(Uint64), nil
+}
+
+//read 8 bytes and convert it to float64(BigEndian).
+func (r *ReadSeeker) ReadFloat64BigEndian() (float64, error) {
+	Uint64, err := r.ReadUint64BigEndian()
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(Uint64), nil
+}
+
+//Contains reports whether sep is within the data.
 func (r *ReadSeeker) Contains(sep []byte) bool {
 	return r.Index(sep) != -1
 }
 
-//计算f中共有多少个不重重叠的sep子串
+//Count counts the number of non-overlapping instances of sep in data.
 func (r *ReadSeeker) Count(sep []byte) int64 {
 	return r.CountGen(0, r.Size()-1, sep)
 }
 
-//判断f中某段数据内有多少个不重叠的sep子串
+//Count counts the number of non-overlapping instances of sep in a range of data.
 func (r *ReadSeeker) CountGen(beginPos, endPos int64, sep []byte) int64 {
 	//防止文件位置发生移动
 	initialPos, _ := r.CurPos()
 	defer r.MoveTo(initialPos)
-
 	lenSep := int64(len(sep))
 	//sep输入不合法,标准库中是直接用f的长度加1，这里不照搬
 	if lenSep == 0 {
@@ -489,75 +570,73 @@ func (r *ReadSeeker) CountGen(beginPos, endPos int64, sep []byte) int64 {
 	return count
 }
 
-//查找数据,从文件的开始位置开始查找sep子串,返回第1次出现的位置
+//Index returns the index of the first instance of substr in data.
 func (r *ReadSeeker) Index(sep []byte) int64 {
 	endPos := r.Size() - 1
 	return r.IndexGen(0, endPos, sep)
 }
 
-//查找数据,从文件的beginPos位置到endPos位置开始查找sep子串,返回第1次出现的位置
-//注意待搜索数据包含beginPos及endPos本身
+var bytesPoolForIndexGen = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 0, 1024)
+		return buf
+	},
+}
+
+//Index returns the index of the first instance of substr in a range of data.
 func (r *ReadSeeker) IndexGen(beginPos, endPos int64, sep []byte) int64 {
-	//防止文件位置发生移动
 	initialPos, _ := r.CurPos()
 	defer r.MoveTo(initialPos)
-
-	//先对输入值合法性进行判断,不合法则直接退出,强制用户检察
 	if realEndpos := r.Size() - 1; endPos < beginPos ||
 		beginPos < 0 ||
 		endPos < 0 ||
 		realEndpos < endPos ||
 		len(sep) == 0 {
 		panic("beginPos:" + strconv.Itoa(int(beginPos)) + " or endPos:" + strconv.Itoa(int(endPos)) + " or sep is not a valid value.")
-		//return -1
 	}
 	r.MoveTo(beginPos)
-	//每次实际读取的字节数组长度,至少要是2倍于待对比的Sep长度
-	//除非剩余数据不够长，那么默认每次读取的最小磁盘大小为4M(4 * 1024 * 1024)
-	nMaxSize := 4194304
+	nMaxSize := 1024
 	lenSep := len(sep)
 	if nMaxSize < lenSep*2 {
-		nMaxSize = lenSep * 2
+		nMaxSize = lenSep * 2 //the min size is lenSep * 2
 	}
+	buf := bytesPoolForIndexGen.Get().([]byte)
+	defer bytesPoolForIndexGen.Put(buf)
 	for {
-		var data []byte
+		buf = buf[0:0]
 		curPos, _ := r.CurPos()
-		//读取每次待对比的数据,如果剩余数据太短,则读取到endPos为止
 		if int(endPos-curPos+1) < nMaxSize {
-			data, _ = r.ReadByte(int(endPos - curPos + 1))
+			buf = make([]byte, int(endPos-curPos+1))
+			buf, _ = r.readBytesToDst(int(endPos-curPos+1), buf)
 		} else {
-			data, _ = r.ReadByte(nMaxSize)
+			buf = make([]byte, nMaxSize)
+			buf, _ = r.readBytesToDst(nMaxSize, buf)
 		}
-		newPos := bytes.Index(data, sep)
-		if len(data) < nMaxSize { //末次读取
+		newPos := bytes.Index(buf, sep)
+		if len(buf) < nMaxSize {
 			if newPos == -1 {
 				return -1
 			} else {
 				return curPos + int64(newPos)
 			}
-		} else { //非末次读取
+		} else {
 			if newPos >= 0 {
 				return curPos + int64(newPos)
 			}
 		}
-		//文件位置前移lenSep个长度
 		r.Move(int64(0 - lenSep))
 	}
 	return -1
 }
 
-//查找数据,从文件的beginPos位置开始查找S子串,第N次出现的位置,N大于0,beginPos大于等于0
+//Index returns the nth index of the instance of sep in data.
 func (r *ReadSeeker) IndexN(beginPos int64, sep []byte, n int) int64 {
-	//防止文件位置发生移动
 	initialPos, _ := r.CurPos()
 	defer r.MoveTo(initialPos)
 	r.MoveTo(beginPos)
-	// 检察N的合法性
 	if n <= 0 {
 		panic(strconv.Itoa(n) + " is not a valid value.")
-		// return -1
 	}
-	// 执行n次搜索
 	var findPos int64
 	endPos := r.Size() - 1
 	for i := 0; i < n; i++ {
@@ -566,86 +645,78 @@ func (r *ReadSeeker) IndexN(beginPos int64, sep []byte, n int) int64 {
 			return -1
 		}
 		findPos = r.IndexGen(curPos, endPos, sep)
-		if findPos == -1 { //中间任何一次没找到就返回
+		if findPos == -1 {
 			return -1
-		} else { //找到一次,那么要移动到这个位置加SEP长度
+		} else {
 			r.MoveTo(findPos + int64(len(sep)))
 		}
 	}
 	return findPos
 }
 
-//查找数据,在整个文件中查找,返回最后一次出现sep的位置,注意待搜索数据包含beginPos及endPos本身
+//LastIndex returns the index of the last instance of sep in data.
 func (r *ReadSeeker) LastIndex(sep []byte) int64 {
 	endPos := r.Size() - 1
 	return r.LastIndexGen(0, endPos, sep)
 }
 
-//查找数据,在的beginPos到endPos内查找sep子串,返回最后1次出现的位置,注意待搜索数据包含beginPos及endPos本身
+//LastIndex returns the index of the last instance of sep in a range of data.
 func (r *ReadSeeker) LastIndexGen(beginPos, endPos int64, sep []byte) int64 {
-	//防止文件位置发生移动
 	initialPos, _ := r.CurPos()
 	defer r.MoveTo(initialPos)
-	//先对输入值合法性进行判断,不合法则直接退出,强制用户检察
 	if realEndpos := r.Size() - 1; endPos < beginPos ||
 		beginPos < 0 ||
 		endPos < 0 ||
 		realEndpos < endPos ||
 		len(sep) == 0 {
 		panic("beginPos:" + strconv.Itoa(int(beginPos)) + " or endPos:" + strconv.Itoa(int(endPos)) + " or sep is not a valid value.")
-		//return -1
 	}
-	//这种方法是移动到最后
 	r.MoveTo(endPos + 1)
-	//每次实际读取的字节数组长度,至少要是2倍于待对比的Sep长度
-	//除非剩余数据不够长，那么默认每次读取的最小磁盘大小为4M(4 * 1024 * 1024)
-	nMaxSize := 4194304
+	nMaxSize := 1024
 	lenSep := len(sep)
 	if nMaxSize < lenSep*2 {
 		nMaxSize = lenSep * 2
 	}
+	buf := bytesPoolForIndexGen.Get().([]byte)
+	defer bytesPoolForIndexGen.Put(buf)
 	for {
-		var data []byte
+		buf = buf[:0]
 		curPos, _ := r.CurPos()
-		//读取每次待对比的数据,如果剩余数据太短,则读取到beginPos为止
 		if int(curPos-beginPos) < nMaxSize {
-			r.MoveTo(beginPos)
-			data, _ = r.ReadByte(int(curPos - beginPos))
+			buf = make([]byte, int(curPos-beginPos))
+			buf, _ = r.ReadBytesReverse(int(curPos - beginPos))
 		} else {
-			data, _ = r.ReadByteReverse(nMaxSize)
+			buf = make([]byte, nMaxSize)
+			buf, _ = r.ReadBytesReverse(nMaxSize)
 		}
-		newPos := bytes.LastIndex(data, sep)
+		newPos := bytes.LastIndex(buf, sep)
 		tempPos, _ := r.CurPos()
-		if len(data) < nMaxSize { //末次读取
+		if len(buf) < nMaxSize {
 			if newPos == -1 {
 				return -1
 			} else {
 				return beginPos + int64(newPos)
 			}
-		} else { //非末次读取
+		} else {
 			if newPos >= 0 {
 				return tempPos + int64(newPos)
 			}
 		}
-		//文件位置往后移lenSep个长度
 		r.Move(int64(lenSep))
 	}
 	return -1
 }
 
-//从当前位置向前读取n个字节,并移动指针
-func (r *ReadSeeker) ReadByteReverse(n int) ([]byte, error) {
-	//先向前移动n个位置
+//read n bytes,read the data backwards.
+func (r *ReadSeeker) ReadBytesReverse(n int) ([]byte, error) {
 	err := r.Move(int64(-n))
 	if err != nil {
 		return nil, err
 	}
-	//最终读取后指针所在位置
 	currentPos, err := r.CurPos()
 	if err != nil {
 		return nil, err
 	}
-	//强制检查传入参数的合法性
 	if surplusLen := r.Size() - currentPos; surplusLen < int64(n) {
 		if surplusLen < 0 {
 			surplusLen = 0
@@ -657,7 +728,6 @@ func (r *ReadSeeker) ReadByteReverse(n int) ([]byte, error) {
 		}
 	}
 	defer r.MoveTo(currentPos)
-
 	bt := make([]byte, n)
 	realRead, err := r.readSeeker.Read(bt)
 	if err != nil {
